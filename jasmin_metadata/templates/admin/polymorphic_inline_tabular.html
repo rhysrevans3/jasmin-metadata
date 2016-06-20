@@ -1,0 +1,133 @@
+{% load i18n admin_urls admin_static admin_modify %}
+
+<div class="inline-group" id="{{ inline_admin_formset.formset.prefix }}-group">
+    <div class="tabular polymorphic-tabular inline-related {% if forloop.last %}last-related{% endif %}">
+        {{ inline_admin_formset.formset.management_form }}
+        <fieldset class="module">
+            <h2>{{ inline_admin_formset.opts.verbose_name_plural|capfirst }}</h2>
+            {{ inline_admin_formset.formset.non_form_errors }}
+            <table>
+                <thead>
+                    <tr>
+                        {% for field in inline_admin_formset.fields %}
+                            {% if not field.widget.is_hidden %}
+                                <th{% if field.required %} class="required"{% endif %}>
+                                    {{ field.label|capfirst }}
+                                    {% if field.help_text %}&nbsp;<img src="{% static "admin/img/icon-unknown.svg" %}" class="help help-tooltip" width="10" height="10" alt="({{ field.help_text|striptags }})" title="{{ field.help_text|striptags }}" />{% endif %}
+                                </th>
+                            {% endif %}
+                        {% endfor %}
+                        <th colspan="2">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for inline_admin_form in inline_admin_formset %}
+                        {% if inline_admin_form.form.non_field_errors %}
+                            <tr><td colspan="{{ inline_admin_form|cell_count }}">{{ inline_admin_form.form.non_field_errors }}</td></tr>
+                        {% endif %}
+                        <tr class="form-row {% cycle "row1" "row2" %}{% if forloop.last %} empty-form{% endif %}" id="{{ inline_admin_formset.formset.prefix }}-{% if not forloop.last %}{{ forloop.counter0 }}{% else %}empty{% endif %}">
+                            {% if inline_admin_form.needs_explicit_pk_field %}{{ inline_admin_form.pk_field.field }}{% endif %}
+                            {{ inline_admin_form.fk_field.field }}
+                            {% spaceless %}
+                                {% for fieldset in inline_admin_form %}
+                                    {% for line in fieldset %}
+                                        {% for field in line %}
+                                            {% if field.field.is_hidden %} {{ field.field }} {% endif %}
+                                        {% endfor %}
+                                    {% endfor %}
+                                {% endfor %}
+                            {% endspaceless %}
+                            {% for fieldset in inline_admin_form %}
+                                {% for line in fieldset %}
+                                    {% for field in line %}
+                                        {% if not field.field.is_hidden %}
+                                            <td{% if field.field.name %} class="field-{{ field.field.name }}"{% endif %}>
+                                                {% if field.is_readonly %}
+                                                    <p>{{ field.contents|default:"" }}</p>
+                                                {% else %}
+                                                    {{ field.field.errors.as_ul }}
+                                                    {{ field.field }}
+                                                {% endif %}
+                                            </td>
+                                        {% endif %}
+                                    {% endfor %}
+                                {% endfor %}
+                            {% endfor %}
+                            {% if inline_admin_form.original %}
+                                <td style="width: 1%; white-space: nowrap;">
+                                    <p>
+                                        <a class="changelink"
+                                           id="change_{{ inline_admin_formset.formset.prefix }}-{% if not forloop.last %}{{ forloop.counter0 }}{% else %}empty{% endif %}"
+                                           href="{% url inline_admin_form.model_admin.opts|admin_urlname:'change' inline_admin_form.original.pk|admin_urlquote %}">
+                                            {% trans "Change" %}
+                                        </a>
+                                    </p>
+                                </td>
+                                <td style="width: 1%; white-space: nowrap;">
+                                    <p>
+                                        <a class="deletelink"
+                                           id="delete_{{ inline_admin_formset.formset.prefix }}-{% if not forloop.last %}{{ forloop.counter0 }}{% else %}empty{% endif %}"
+                                           href="{% url inline_admin_form.model_admin.opts|admin_urlname:'delete' inline_admin_form.original.pk|admin_urlquote %}">
+                                            {% trans "Delete" %}
+                                        </a>
+                                    </p>
+                                </td>
+                            {% else %}
+                                <td></td>
+                                <td></td>
+                            {% endif %}
+                        </tr>
+                    {% endfor %}
+                    {% if object_id %}
+                        <tr class="add-row">
+                            <td colspan="1000">
+                                <a class="addlink"
+                                   href="{% url inline_admin_formset.opts.opts|admin_urlname:'add' %}?{{ inline_admin_formset.formset.fk.name }}={{ object_id }}"
+                                   id="add_{{ inline_admin_formset.formset.prefix }}">
+                                    {% trans "Add another" %} {{ inline_admin_formset.opts.verbose_name|capfirst }}
+                                </a>
+                            </td>
+                        </tr>
+                    {% else %}
+                    <tr class="add-row">
+                        <td colspan="1000">
+                            To add a {{ inline_admin_formset.opts.verbose_name|capfirst }}, first save the {{ inline_admin_formset.model_admin.opts.verbose_name|capfirst }}
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </fieldset>
+    </div>
+</div>
+
+<script type="text/javascript">
+(function($) {
+    function showPopup(triggeringLink) {
+        var name = triggeringLink.id.replace(/^(change|add|delete)_/, '');
+        name = id_to_windowname(name);
+        var href = triggeringLink.href;
+        if (href.indexOf('?') === -1) {
+            href += '?_popup=1';
+        } else {
+            href += '&_popup=1';
+        }
+        var win = window.open(href, name, 'height=500,width=800,resizable=yes,scrollbars=yes');
+        win.focus();
+        return false;
+    }
+
+    // Override dismiss methods to just refresh the page
+    function dismissAndRefresh(popup) {
+        popup.close();
+        window.location.reload(true);
+    }
+    dismissAddRelatedObjectPopup = dismissAndRefresh;
+    dismissChangeRelatedObjectPopup = dismissAndRefresh;
+    dismissDeleteRelatedObjectPopup = dismissAndRefresh;
+
+    $('.polymorphic-tabular').on('click', 'a.addlink, a.changelink, a.deletelink', function(e) {
+        return showPopup(this);
+    });
+})(django.jQuery);
+</script>
