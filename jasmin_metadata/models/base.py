@@ -23,28 +23,15 @@ class Metadatum(models.Model):
     """
     class Meta:
         verbose_name_plural = 'metadata'
+        unique_together = ('content_type', 'object_id', 'key')
 
     content_type = models.ForeignKey(ContentType, models.CASCADE)
-    object_id = models.PositiveIntegerField()
+    object_id = models.CharField(max_length = 250)
     content_object = GenericForeignKey('content_type', 'object_id')
     #: The metadata key
     key = models.CharField(max_length = 200)
     #: The pickled value for the datum
     value = PickledObjectField(null = True)
-
-    def clean(self):
-        # The key must be unique for the object
-        if self.content_type and self.object_id and self.key:
-            q = self.__class__.objects  \
-                    .filter(content_type = self.content_type,
-                            object_id = self.object_id,
-                            key = self.key)
-            if self.pk:
-                q = q.exclude(pk = self.pk)
-            if q.exists():
-                raise ValidationError({
-                    'key' : 'Key must be unique for object'
-                })
 
 
 class HasMetadata(models.Model):
@@ -62,17 +49,11 @@ class HasMetadata(models.Model):
         Finds all metadata entries associated with this object and copies them
         onto the given object.
         """
-        # We can still attach metadata to obj, even if it doesn't inherit from
-        # HasMetadata. However, we can't rely on it having a metadata property...
-        ctype = ContentType.objects.get_for_model(obj)
+        content_type = ContentType.objects.get_for_model(obj)
+        # Remove any existing metadata for the object
+        Metadatum.objects.filter(content_type = content_type, object_id = obj.pk).delete()
         for datum in self.metadata.all():
-            # If obj already has the metadata, overwrite it
-            # Otherwise, create a new object
-            try:
-                new = Metadatum.objects  \
-                               .get(content_type = ctype,
-                                    object_id = obj.pk, key = datum.key)
-            except Metadatum.DoesNotExist:
-                new = Metadatum(content_object = obj, key = datum.key)
-            new.value = datum.value
-            new.save()
+            Metadatum.objects.create(
+                content_type = content_type, object_id = obj.pk,
+                key = datum.key, value = datum.value
+            )
