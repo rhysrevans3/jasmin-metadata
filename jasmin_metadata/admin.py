@@ -347,12 +347,12 @@ class HasMetadataModelAdmin(admin.ModelAdmin):
                         initial = self.get_metadata_form_initial_data(request, obj),
                         prefix = 'metadata'
                     )
-            context['metadata_form'] = helpers.AdminForm(
-                metadata_form,
-                # Put all the fields in one fieldset
-                [('Metadata', { 'fields' : list(metadata_form.fields.keys()) })],
-                # No pre-populated fields
-                {},
-            )
-            context['errors'].extend(metadata_form.errors.values())
+                context['metadata_form'] = helpers.AdminForm(
+                    metadata_form,
+                    # Put all the fields in one fieldset
+                    [('Metadata', { 'fields' : list(metadata_form.fields.keys()) })],
+                    # No pre-populated fields
+                    {},
+                )
+                context['errors'].extend(metadata_form.errors.values())
         return super().render_change_form(request, context, add, change, form_url, obj)
