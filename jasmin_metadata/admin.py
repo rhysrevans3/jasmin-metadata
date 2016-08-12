@@ -6,6 +6,7 @@ __author__ = "Matt Pryor"
 __copyright__ = "Copyright 2015 UK Science and Technology Facilities Council"
 
 from functools import partial
+from urllib.parse import urlencode
 
 from django.contrib import admin
 from django.contrib.admin.helpers import AdminForm
@@ -14,10 +15,12 @@ from django.db import models
 from django import forms
 from django.core.urlresolvers import reverse
 from django.shortcuts import redirect
-from django.contrib.admin.options import IS_POPUP_VAR
 from django.template.response import SimpleTemplateResponse
 from django.contrib import messages
 from django.utils.html import escape
+from django.conf.urls import url
+from django.contrib.admin import helpers
+from django.utils.encoding import force_text
 
 from polymorphic.admin import (
     PolymorphicParentModelAdmin, PolymorphicChildModelAdmin, PolymorphicChildModelFilter
@@ -91,7 +94,7 @@ class FieldChildAdmin(PolymorphicChildModelAdmin):
 
     def response_delete(self, request, obj_display, obj_id):
         ## COPIED FROM django/contrib/admin/options.py
-        if IS_POPUP_VAR in request.POST:
+        if "_popup" in request.POST:
             return SimpleTemplateResponse('admin/popup_response.html', {
                 'action': 'delete',
                 'value': escape(obj_id),
@@ -167,60 +170,8 @@ class FormAdmin(admin.ModelAdmin):
     n_fields.short_description = '# fields'
 
 
-def _linkedform_factory(admin, request, obj_form_class):
-    """
-    Returns a subclass of the given ModelForm class that links an instance of
-    :py:class:`~.forms.MetadataForm` when appropriate.
-
-    Note that this **does not** put the fields from the metadata form into the
-    model form (as they get rejected by the admin code), but it does tie the
-    validity of the model form to the validity of the metadata form.
-    """
-    def new_init(self, data = None, files = None, **kwargs):
-        instance = kwargs.get('instance', None)
-        obj_form_class.__init__(self, data, files, **kwargs)
-        # If there is no instance given, defer initialisation of the metadata_form
-        if not instance:
-            return
-        # If there is no metadata form class for the object, return
-        metadata_form_class = admin.get_metadata_form_class(request, instance)
-        if metadata_form_class is None:
-            return None
-        if data:
-            self.metadata_form = metadata_form_class(data = data)
-        else:
-            # Find any existing metadata for the object and use it to update initial
-            content_type = ContentType.objects.get_for_model(instance)
-            metadata = Metadatum.objects  \
-                                .filter(content_type = content_type,
-                                        object_id = instance.pk)
-            self.metadata_form = metadata_form_class(initial = {
-                d.key : d.value for d in metadata.all()
-            })
-
-    def new_is_valid(self):
-        # If the parent is not valid, make no attempt to present metadata
-        parent_valid = obj_form_class.is_valid(self)
-        if not parent_valid:
-            return False
-        # If there is already a metadata form, validate it as well
-        if hasattr(self, 'metadata_form'):
-            return self.metadata_form.is_valid()
-        # If there is no metadata form, see if we need to create one based on the
-        # object about to be saved
-        obj = self.save(commit = False)
-        metadata_form_class = admin.get_metadata_form_class(request, obj)
-        if metadata_form_class is None:
-            return True
-        self.metadata_form = metadata_form_class(data = request.POST)
-        return self.metadata_form.is_valid()
-
-    return type(obj_form_class)(obj_form_class.__name__, (obj_form_class, ), {
-        'Meta' : type('Meta', (getattr(obj_form_class, 'Meta', object), ), {}),
-        'formfield_callback' : partial(admin.formfield_for_dbfield, request = request),
-        '__init__' : new_init,
-        'is_valid' : new_is_valid,
-    })
+################################################################################
+################################################################################
 
 
 class HasMetadataModelAdmin(admin.ModelAdmin):
@@ -233,41 +184,175 @@ class HasMetadataModelAdmin(admin.ModelAdmin):
 
     change_form_template = 'admin/change_form_metadata.html'
 
-    def get_metadata_form_class(self, request, obj = None):
+    def get_metadata_form_class(self, request, obj):
         """
-        Returns the metadata form to use for the given object. It can be assumed
-        that the object has been previously saved.
+        Returns the metadata form to use for the given object.
 
         The returned form must inherit from :py:class:`~.forms.MetadataForm`.
         """
         return self.metadata_form_class
 
-    def get_form(self, request, obj = None, **kwargs):
+    def get_metadata_form_initial_data(self, request, obj):
         """
-        Modifies the parent method to returns a form that has a metadata form linked.
-        The form is only considered valid if the metadata form is also valid.
+        Gets the initial data for the metadata form. By default, this just
+        returns the metadata currently attached to the object.
         """
-        return _linkedform_factory(self, request, super().get_form(request, obj, **kwargs))
+        ctype = ContentType.objects.get_for_model(obj)
+        metadata = Metadatum.objects.filter(content_type = ctype, object_id = obj.pk)
+        return { d.key : d.value for d in metadata.all() }
 
     def save_model(self, request, obj, form, change):
-        """
-        Modifies the parent method to also save any metadata.
-        """
-        super().save_model(request, obj, form, change)
-        if hasattr(form, 'metadata_form'):
-            form.metadata_form.save(obj)
+        #####
+        ## Override save_model to only save the model if the metadata is also valid
+        #####
+        metadata_form_class = self.get_metadata_form_class(request, obj)
+        # If there is no metadata form, behave as normal
+        if not metadata_form_class:
+            return super().save_model(request, obj, form, change)
+        # If the metadata is valid, save the object and the metadata
+        if '_has_metadata' in request.POST:
+            metadata_form = metadata_form_class(data = request.POST, prefix = 'metadata')
+            if metadata_form.is_valid():
+                super().save_model(request, obj, form, change)
+                metadata_form.save(obj)
 
-    def render_change_form(self, request, context,
-                           add = False, change = False, form_url = '', obj = None):
-        # Inject things for the metadata form into the context
-        form = context['adminform'].form
-        if hasattr(form, 'metadata_form'):
-            context['metadata_form'] = AdminForm(
-                form.metadata_form,
+    def response_add(self, request, obj, post_url_continue = None):
+        #####
+        ## Override response_add to collect metadata after the object is fully
+        ## specified
+        ##
+        ## This is primarily to allow us to deal with the situation where the
+        ## required metadata is dependent on an objects state in an intuitive way
+        #####
+        # If there is no metadata form, behave as normal
+        metadata_form_class = self.get_metadata_form_class(request, obj)
+        # If there is no metadata form, behave as normal
+        if not metadata_form_class:
+            return super().response_add(request, obj, post_url_continue)
+        if '_has_metadata' in request.POST:
+            # If the submit supposedly has metadata, validate it
+            # If the metadata is valid (and hence has been saved), behave as normal
+            metadata_form = metadata_form_class(data = request.POST, prefix = 'metadata')
+            if metadata_form.is_valid():
+                return super().response_add(request, obj, post_url_continue)
+        else:
+            # If there is no metadata in the submit, create the form
+            metadata_form = metadata_form_class(
+                initial = self.get_metadata_form_initial_data(request, obj),
+                prefix = 'metadata'
+            )
+        #######
+        ## THIS CODE IS SIMILAR TO changeform_view
+        #######
+        # When rendering the metadata form, we also render the object form with
+        # all the elements hidden
+        parent_form_class = self.get_form(request)
+        parent_form = parent_form_class(request.POST, request.FILES)
+        # Make all the fields in the parent form hidden
+        for field in parent_form.fields:
+            parent_form.fields[field].widget = forms.HiddenInput()
+        admin_form = helpers.AdminForm(
+            parent_form,
+            list(self.get_fieldsets(request, obj)),
+            self.get_prepopulated_fields(request, obj),
+            self.get_readonly_fields(request, obj),
+            model_admin = self
+        )
+        media = self.media + admin_form.media
+        metadata_admin_form = helpers.AdminForm(
+            metadata_form,
+            # Put all the fields in one fieldset
+            [(None, { 'fields' : list(metadata_form.fields.keys()) })],
+            # No pre-populated fields
+            {},
+        )
+        errors = helpers.AdminErrorList(parent_form, [])
+        if metadata_form.errors:
+            errors.extend(metadata_form.errors.values())
+        context = dict(self.admin_site.each_context(request),
+            title = 'Set metadata for {}'.format(force_text(self.model._meta.verbose_name)),
+            adminform = admin_form,
+            metadata_form = metadata_admin_form,
+            object_id = obj.pk,
+            original = obj,
+            is_popup = ("_popup" in request.POST or "_popup" in request.GET),
+            to_field = request.POST.get("_to_field", request.GET.get("_to_field")),
+            media = media,
+            inline_admin_formsets = [],
+            errors = errors,
+            preserved_filters = self.get_preserved_filters(request),
+        )
+        return self.render_change_form(request, context, add = True, change = False, obj = obj)
+
+    def response_change(self, request, obj):
+        #####
+        ## Override response_change to ensure that the metadata is valid before
+        ## proceeding with the normal action
+        #####
+        # If there is no metadata form, behave as normal
+        metadata_form_class = self.get_metadata_form_class(request, obj)
+        # If there is no metadata form, behave as normal
+        if not metadata_form_class:
+            return super().response_change(request, obj)
+        if '_has_metadata' in request.POST:
+            # If the submit supposedly has metadata, validate it
+            # If the metadata is valid (and hence has been saved), behave as normal
+            metadata_form = metadata_form_class(data = request.POST, prefix = 'metadata')
+            if metadata_form.is_valid():
+                return super().response_change(request, obj)
+        #######
+        ## If metadata is invalid, we essentially need to replicate part of
+        ## changeform_view to re-display the form
+        #######
+        parent_form_class = self.get_form(request)
+        parent_form = parent_form_class(request.POST, request.FILES, instance = obj)
+        admin_form = helpers.AdminForm(
+            parent_form,
+            list(self.get_fieldsets(request, obj)),
+            self.get_prepopulated_fields(request, obj),
+            self.get_readonly_fields(request, obj),
+            model_admin = self
+        )
+        media = self.media + admin_form.media
+        context = dict(self.admin_site.each_context(request),
+            title = 'Change {}'.format(force_text(self.model._meta.verbose_name)),
+            adminform = admin_form,
+            object_id = obj.pk,
+            original = obj,
+            is_popup = ("_popup" in request.POST or "_popup" in request.GET),
+            to_field = request.POST.get("_to_field", request.GET.get("_to_field")),
+            media = media,
+            inline_admin_formsets = [],
+            errors = helpers.AdminErrorList(parent_form, []),
+            preserved_filters = self.get_preserved_filters(request),
+        )
+        return self.render_change_form(request, context, add = False, change = True, obj = obj)
+
+    def render_change_form(self, request, context, add = False,
+                                 change = False, form_url = '', obj = None):
+        #####
+        ## Override render_change_form to show the metadata form as an additional
+        ## fieldset on change pages
+        #####
+        if change:
+            metadata_form_class = self.get_metadata_form_class(request, obj)
+            if metadata_form_class:
+                if request.method == 'POST':
+                    metadata_form = metadata_form_class(data = request.POST, prefix = 'metadata')
+                    # Force a validation - we don't really care about the result here
+                    metadata_form.is_valid()
+                else:
+                    # If there is no metadata in the submit, create the form
+                    metadata_form = metadata_form_class(
+                        initial = self.get_metadata_form_initial_data(request, obj),
+                        prefix = 'metadata'
+                    )
+            context['metadata_form'] = helpers.AdminForm(
+                metadata_form,
                 # Put all the fields in one fieldset
-                [('Metadata', { 'fields' : list(form.metadata_form.fields.keys()) })],
+                [('Metadata', { 'fields' : list(metadata_form.fields.keys()) })],
                 # No pre-populated fields
                 {},
             )
-            context['errors'].extend(form.metadata_form.errors.values())
+            context['errors'].extend(metadata_form.errors.values())
         return super().render_change_form(request, context, add, change, form_url, obj)
