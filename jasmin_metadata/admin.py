@@ -22,146 +22,88 @@ from django.conf.urls import url
 from django.contrib.admin import helpers
 from django.utils.encoding import force_text
 
-from polymorphic.admin import (
-    PolymorphicParentModelAdmin, PolymorphicChildModelAdmin, PolymorphicChildModelFilter
-)
+from polymorphic.admin import PolymorphicInlineSupportMixin, StackedPolymorphicInline
 
 from .models import *
 
 
-class FieldChoiceForm(forms.Form):
-    """
-    Use a select widget for the choice of field type instead of radio inputs.
-    """
-    ct_id = forms.ChoiceField(label = 'Field type', widget = forms.Select)
-
-
-@admin.register(Field)
-class FieldAdmin(PolymorphicParentModelAdmin):
-    base_model = Field
-    child_models = []
-    add_type_form = FieldChoiceForm
-
-    list_display = ('name', 'form')
-    list_filter = ('form', )
-
-    @classmethod
-    def register_field_type(cls, model, model_admin = None):
-        if not model_admin:
-            model_admin = type(
-                model._meta.model_name + 'Admin',
-                (FieldChildAdmin, ),
-                { 'base_model' : model }
-            )
-        cls.child_models.append((model, model_admin))
-
-
-class FieldChildAdmin(PolymorphicChildModelAdmin):
-    # The field on objects in this admin that we want to redirect to
-    redirect_to_field = 'form'
-
-    def response_post_save_add(self, request, obj):
-        redirect_to = getattr(obj, self.redirect_to_field, None)
-        if not redirect_to:
-            return super().response_post_save_add(request, obj)
-        else:
-            return redirect(
-                'admin:{}_{}_change'.format(
-                    redirect_to._meta.app_label, redirect_to._meta.model_name
-                ),
-                redirect_to.pk
-            )
-
-    def response_post_save_change(self, request, obj):
-        redirect_to = getattr(obj, self.redirect_to_field, None)
-        if not redirect_to:
-            return super().response_post_save_change(request, obj)
-        else:
-            return redirect(
-                'admin:{}_{}_change'.format(
-                    redirect_to._meta.app_label, redirect_to._meta.model_name
-                ),
-                redirect_to.pk
-            )
-
-    def delete_model(self, request, obj):
-        # HACK
-        # Before we delete the object, store the object we want to redirect to on
-        # the request for later
-        redirect_to = getattr(obj, self.redirect_to_field, None)
-        request._redirect_to_obj_ = redirect_to
-        return super().delete_model(request, obj)
-
-    def response_delete(self, request, obj_display, obj_id):
-        ## COPIED FROM django/contrib/admin/options.py
-        if "_popup" in request.POST:
-            return SimpleTemplateResponse('admin/popup_response.html', {
-                'action': 'delete',
-                'value': escape(obj_id),
-            })
-
-        self.message_user(request,
-            _('The %(name)s "%(obj)s" was deleted successfully.') % {
-                'name': force_text(opts.verbose_name),
-                'obj': force_text(obj_display),
-            }, messages.SUCCESS)
-        # END COPIED SECTION
-
-        redirect_to = getattr(request, '_redirect_to_obj_', None)
-        if not redirect_to:
-            return super().response_delete(request, obj_display, obj_id)
-        else:
-            return redirect(
-                'admin:{}_{}_change'.format(
-                    redirect_to._meta.app_label, redirect_to._meta.model_name
-                ),
-                redirect_to.pk
-            )
-
-class UserChoiceInline(admin.TabularInline):
-    model = UserChoice
+@admin.register(UserChoice)
+class UserChoiceAdmin(admin.ModelAdmin):
     prepopulated_fields = { 'display' : ('value', ) }
 
-class ChoiceFieldAdmin(FieldChildAdmin):
-    base_model = ChoiceField
-    inlines = (UserChoiceInline, )
 
-class MultipleChoiceFieldAdmin(FieldChildAdmin):
-    base_model = MultipleChoiceField
-    inlines = (UserChoiceInline, )
-
-
-FieldAdmin.register_field_type(BooleanField)
-FieldAdmin.register_field_type(SingleLineTextField)
-FieldAdmin.register_field_type(MultiLineTextField)
-FieldAdmin.register_field_type(EmailField)
-FieldAdmin.register_field_type(IPv4Field)
-FieldAdmin.register_field_type(RegexField)
-FieldAdmin.register_field_type(SlugField)
-FieldAdmin.register_field_type(URLField)
-FieldAdmin.register_field_type(IntegerField)
-FieldAdmin.register_field_type(FloatField)
-FieldAdmin.register_field_type(ChoiceField, ChoiceFieldAdmin)
-FieldAdmin.register_field_type(MultipleChoiceField, MultipleChoiceFieldAdmin)
-FieldAdmin.register_field_type(DateField)
-FieldAdmin.register_field_type(DateTimeField)
-FieldAdmin.register_field_type(TimeField)
-
-
-class FieldInline(admin.TabularInline):
-    template = 'admin/polymorphic_inline_tabular.html'
-    extra = 0
+class FieldInline(StackedPolymorphicInline):
     model = Field
-    fields = ('name', 'field_info', 'required', 'position', )
-    readonly_fields = ('name', 'field_info', 'required')
-    formfield_overrides = {
-        models.TextField : {
-            'widget' : forms.Textarea(attrs = { 'rows' : 3 }),
-        },
-    }
+    child_inlines = []
+
+class BooleanFieldInline(StackedPolymorphicInline.Child):
+    model = BooleanField
+FieldInline.child_inlines.append(BooleanFieldInline)
+
+class SingleLineTextFieldInline(StackedPolymorphicInline.Child):
+    model = SingleLineTextField
+FieldInline.child_inlines.append(SingleLineTextFieldInline)
+
+class MultiLineTextFieldInline(StackedPolymorphicInline.Child):
+    model = MultiLineTextField
+FieldInline.child_inlines.append(MultiLineTextFieldInline)
+
+class EmailFieldInline(StackedPolymorphicInline.Child):
+    model = EmailField
+FieldInline.child_inlines.append(EmailFieldInline)
+
+class IPv4FieldInline(StackedPolymorphicInline.Child):
+    model = IPv4Field
+FieldInline.child_inlines.append(IPv4FieldInline)
+
+class RegexFieldInline(StackedPolymorphicInline.Child):
+    model = RegexField
+FieldInline.child_inlines.append(RegexFieldInline)
+
+class SlugFieldInline(StackedPolymorphicInline.Child):
+    model = SlugField
+FieldInline.child_inlines.append(SlugFieldInline)
+
+class URLFieldInline(StackedPolymorphicInline.Child):
+    model = URLField
+FieldInline.child_inlines.append(URLFieldInline)
+
+class IntegerFieldInline(StackedPolymorphicInline.Child):
+    model = IntegerField
+FieldInline.child_inlines.append(IntegerFieldInline)
+
+class FloatFieldInline(StackedPolymorphicInline.Child):
+    model = FloatField
+FieldInline.child_inlines.append(FloatFieldInline)
+
+class DateFieldInline(StackedPolymorphicInline.Child):
+    model = DateField
+FieldInline.child_inlines.append(DateFieldInline)
+
+class DateTimeFieldInline(StackedPolymorphicInline.Child):
+    model = DateTimeField
+FieldInline.child_inlines.append(DateTimeFieldInline)
+
+class TimeFieldInline(StackedPolymorphicInline.Child):
+    model = TimeField
+FieldInline.child_inlines.append(TimeFieldInline)
+
+class ChoiceFieldInline(StackedPolymorphicInline.Child):
+    model = ChoiceField
+    filter_horizontal = ('choices', )
+FieldInline.child_inlines.append(ChoiceFieldInline)
+
+class MultipleChoiceFieldInline(StackedPolymorphicInline.Child):
+    model = MultipleChoiceField
+    filter_horizontal = ('choices', )
+FieldInline.child_inlines.append(MultipleChoiceFieldInline)
+
 
 @admin.register(Form)
-class FormAdmin(admin.ModelAdmin):
+class FormAdmin(PolymorphicInlineSupportMixin, admin.ModelAdmin):
+    class Media:
+        js = ('admin/metadata/collapsible_inlines.js', )
+
     inlines = (FieldInline, )
     list_display = ('name', 'n_fields')
 

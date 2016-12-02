@@ -48,6 +48,7 @@ class Field(PolymorphicModel):
     Model representing a form field.
     """
     class Meta:
+        unique_together = ('form', 'name')
         ordering = ('position', 'name')
 
     #: The form field class to use for fields of this type
@@ -112,21 +113,6 @@ class Field(PolymorphicModel):
             'help_text' : self.help_text,
         }
 
-    def clean(self):
-        # name must be unique for the form
-        if self.name:
-            try:
-                q = self.form.fields.filter(name = self.name)
-            except Form.DoesNotExist:
-                pass
-            else:
-                if self.pk:
-                    q = q.exclude(pk = self.pk)
-                if q.exists():
-                    raise ValidationError({
-                        'name' : 'Must be unique within a form'
-                    })
-
 
 class BooleanField(Field):
     """
@@ -138,22 +124,12 @@ class BooleanField(Field):
     form_field_class = forms.BooleanField
 
 
-class ChoiceFieldBase(Field):
-    """
-    Base model for fields that allow selection from a number of choices.
-    """
-    def get_choices(self):
-        return [(c.value, c.display) for c in self.choices.all()]
-
-    def get_field_kwargs(self):
-        return dict(super().get_field_kwargs(), choices = self.get_choices())
-
 class UserChoice(models.Model):
     """
     Model for a choice for :py:class:`ChoiceField`.
     """
-    field = models.ForeignKey(ChoiceFieldBase, models.CASCADE, related_name = 'choices')
     value = models.CharField(
+        unique = True,
         max_length = 250,
         help_text = 'The value that the choice represents'
     )
@@ -161,6 +137,21 @@ class UserChoice(models.Model):
         max_length = 250,
         help_text = 'How the value will be displayed to the user'
     )
+
+    def __str__(self):
+        return "{} : {}".format(self.value, self.display)
+
+class ChoiceFieldBase(Field):
+    """
+    Base model for fields that allow selection from a number of choices.
+    """
+    choices = models.ManyToManyField(UserChoice)
+
+    def get_choices(self):
+        return [(c.value, c.display) for c in self.choices.all()]
+
+    def get_field_kwargs(self):
+        return dict(super().get_field_kwargs(), choices = self.get_choices())
 
 class ChoiceField(ChoiceFieldBase):
     """
