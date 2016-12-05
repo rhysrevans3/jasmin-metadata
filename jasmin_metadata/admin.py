@@ -102,7 +102,13 @@ FieldInline.child_inlines.append(MultipleChoiceFieldInline)
 @admin.register(Form)
 class FormAdmin(PolymorphicInlineSupportMixin, admin.ModelAdmin):
     class Media:
-        js = ('admin/metadata/collapsible_inlines.js', )
+        js = (
+            # mutationobserver polyfill from cloudflare CDN
+            'https://cdnjs.cloudflare.com/ajax/libs/webcomponentsjs/0.7.23/MutationObserver.min.js',
+            # mutationobserver plugin for jQuery
+            'admin/metadata/jquery.initialize.js',
+            'admin/metadata/formfield_inlines.js',
+        )
 
     inlines = (FieldInline, )
     list_display = ('name', 'n_fields')
