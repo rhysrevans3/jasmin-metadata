@@ -44,6 +44,13 @@ class HasMetadata(models.Model):
     metadata = GenericRelation(Metadatum, content_type_field = 'content_type',
                                           object_id_field = 'object_id')
 
+    @property
+    def metadata_dict(self):
+        """
+        Returns the metadata entries as a dictionary.
+        """
+        return { d.key : d.value for d in self.metadata.all() }
+
     def copy_metadata_to(self, obj):
         """
         Finds all metadata entries associated with this object and copies them
