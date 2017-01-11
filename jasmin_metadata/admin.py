@@ -112,6 +112,8 @@ class FormAdmin(PolymorphicInlineSupportMixin, admin.ModelAdmin):
 
     inlines = (FieldInline, )
     list_display = ('name', 'n_fields')
+    # Allow "Save as new" for quick duplication of forms
+    save_as = True
 
     def n_fields(self, obj):
         return obj.fields.count()
