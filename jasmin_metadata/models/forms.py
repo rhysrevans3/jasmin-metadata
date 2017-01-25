@@ -5,8 +5,9 @@ Base models for the JASMIN dynamic forms app.
 __author__ = "Matt Pryor"
 __copyright__ = "Copyright 2015 UK Science and Technology Facilities Council"
 
-import uuid
+import uuid, socket
 from collections import OrderedDict
+from ipaddress import IPv4Address
 
 from django.conf import settings
 from django.db import models
@@ -366,8 +367,28 @@ class IPv4Field(TextFieldBase):
 
     form_field_class = forms.GenericIPAddressField
 
+    require_reverse_dns_lookup = models.BooleanField(default = False)
+
     def get_field_kwargs(self):
-        return dict(super().get_field_kwargs(), protocol = 'IPv4')
+        return dict(
+            super().get_field_kwargs(),
+            protocol = 'IPv4',
+            validators = [self.validate_reverse_dns]
+        )
+
+    def validate_reverse_dns(self, value):
+        if self.require_reverse_dns_lookup:
+            # If the value is not a valid IPv4 address, do nothing
+            try:
+                _ = IPv4Address(value)
+            except ValueError:
+                return
+            try:
+                print(value)
+                print(socket.gethostbyaddr(value))
+                _ = socket.gethostbyaddr(value)[0]
+            except Exception:
+                raise ValidationError('Reverse DNS lookup failed')
 
 class RegexField(TextFieldBase):
     """
