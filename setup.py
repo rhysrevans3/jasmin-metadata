@@ -25,6 +25,7 @@ requires = [
     'django',
     'django-picklefield',
     'django-polymorphic',
+    'django-markdown-deux',
 ]
 
 if __name__ == "__main__":
