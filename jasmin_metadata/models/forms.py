@@ -16,6 +16,8 @@ from django.core.validators import RegexValidator
 
 from polymorphic.models import PolymorphicModel
 
+from markdown_deux.templatetags.markdown_deux_tags import markdown_filter
+
 from ..forms import MetadataForm
 
 
@@ -75,7 +77,10 @@ class Field(PolymorphicModel):
     #: Whether the field is required
     required = models.BooleanField(default = True, help_text = 'Is the field required?')
     #: Help text for the field
-    help_text = models.TextField(help_text = 'Help text for the field', blank = True)
+    help_text = models.TextField(
+        help_text = 'Help text for the field. Markdown syntax is permitted.',
+        blank = True
+    )
     #: Used for ordering
     position = models.PositiveIntegerField(
         default = 0,
@@ -110,7 +115,8 @@ class Field(PolymorphicModel):
         return {
             'required' : self.required,
             'label' : self.label,
-            'help_text' : self.help_text,
+            # Render the help text as markdown
+            'help_text' : markdown_filter(self.help_text),
         }
 
 
