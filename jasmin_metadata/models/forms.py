@@ -384,8 +384,6 @@ class IPv4Field(TextFieldBase):
             except ValueError:
                 return
             try:
-                print(value)
-                print(socket.gethostbyaddr(value))
                 _ = socket.gethostbyaddr(value)[0]
             except Exception:
                 raise ValidationError('Reverse DNS lookup failed')
