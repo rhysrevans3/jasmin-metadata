@@ -5,20 +5,9 @@ Module containing classes for integration of metadata with the Django admin site
 __author__ = "Matt Pryor"
 __copyright__ = "Copyright 2015 UK Science and Technology Facilities Council"
 
-from functools import partial
-from urllib.parse import urlencode
-
 from django.contrib import admin
-from django.contrib.admin.helpers import AdminForm
 from django.contrib.contenttypes.models import ContentType
-from django.db import models
 from django import forms
-from django.core.urlresolvers import reverse
-from django.shortcuts import redirect
-from django.template.response import SimpleTemplateResponse
-from django.contrib import messages
-from django.utils.html import escape
-from django.conf.urls import url
 from django.contrib.admin import helpers
 from django.utils.encoding import force_text
 
